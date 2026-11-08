@@ -35,7 +35,7 @@ jobs:
           docker run --rm --network host \
             -v "$PWD/db/migrations:/flyway/sql" \
             flyway/flyway:10 \
-            -url=jdbc:postgresql://127.0.0.1:5432/appdb \
+            -url=jdbc:postgresql://127.0.0.1:5432/istmd \
             -user=migrator \
             -password="${{ secrets.DB_PASSWORD }}" \
             -connectRetries=5 \
