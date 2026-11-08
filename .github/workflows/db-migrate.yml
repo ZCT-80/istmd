@@ -1,0 +1,42 @@
+name: DB Migrate
+
+on:
+  push:
+    branches: [main]
+    paths: ['db/migrations/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency: db-migrate
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Cloud SQL Auth Proxy'yi baslat
+        run: |
+          curl -sSLo cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.14.0/cloud-sql-proxy.linux.amd64
+          chmod +x cloud-sql-proxy
+          ./cloud-sql-proxy --port 5432 "${{ secrets.CLOUDSQL_INSTANCE }}" &
+          sleep 5
+
+      - name: Flyway migrate
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/db/migrations:/flyway/sql" \
+            flyway/flyway:10 \
+            -url=jdbc:postgresql://127.0.0.1:5432/appdb \
+            -user=migrator \
+            -password="${{ secrets.DB_PASSWORD }}" \
+            -connectRetries=5 \
+            migrate
