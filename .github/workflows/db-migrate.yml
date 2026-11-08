@@ -12,6 +12,12 @@ permissions:
 
 concurrency: db-migrate
 
+env:
+  GCP_PROJECT: bap-tmd
+  GCP_ZONE: europe-west3-a
+  VM_NAME: tsdb-vm
+  DB_NAME: istmd
+
 jobs:
   migrate:
     runs-on: ubuntu-latest
@@ -23,19 +29,26 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_SA_EMAIL }}
 
-      - name: Cloud SQL Auth Proxy'yi baslat
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Veritabanina IAP tuneli ac
         run: |
-          curl -sSLo cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.14.0/cloud-sql-proxy.linux.amd64
-          chmod +x cloud-sql-proxy
-          ./cloud-sql-proxy --port 5432 "${{ secrets.CLOUDSQL_INSTANCE }}" &
-          sleep 5
+          gcloud compute start-iap-tunnel "$VM_NAME" 5432 \
+            --local-host-port=127.0.0.1:5432 \
+            --zone="$GCP_ZONE" --project="$GCP_PROJECT" > tunnel.log 2>&1 &
+          for i in $(seq 1 30); do
+            if nc -z 127.0.0.1 5432; then echo "Tunel hazir"; exit 0; fi
+            sleep 1
+          done
+          echo "Tunel acilamadi:"; cat tunnel.log; exit 1
 
       - name: Flyway migrate
         run: |
           docker run --rm --network host \
-            -v "$PWD/db/migrations:/flyway/sql" \
+            -v "$PWD/db/migrations:/flyway/migrations" \
             flyway/flyway:10 \
-            -url=jdbc:postgresql://127.0.0.1:5432/istmd \
+            -locations=filesystem:/flyway/migrations \
+            -url=jdbc:postgresql://127.0.0.1:5432/$DB_NAME \
             -user=migrator \
             -password="${{ secrets.DB_PASSWORD }}" \
             -connectRetries=5 \
